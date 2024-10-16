@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-server-with-sidecar-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-server-with-sidecar
+  template:
+    metadata:
+      labels:
+        app: app-server-with-sidecar
+    spec:
+      containers:
+        - name: app-server-with-sidecar
+          image: teamcloudyuga/http-echo:0.2.3
+          args: ["-listen", ":8080", "-text", "using-my-sidecar"]
+          ports:
+            - containerPort: 8080
+        - name: nginx-sidecar
+          image: nginx:alpine 
+          ports:
+            - containerPort: 443    
+          volumeMounts:
+            - mountPath: /etc/nginx/ssl
+              name: secrets-store-inline
+              readOnly: true
+            - name: nginx-conf-vol
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-conf-vol
+          configMap:
+            name: nginx-conf
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: azure-keyvault-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-server-with-sidecar-svc
+spec:
+  selector:
+    app: app-server-with-sidecar
+  type: LoadBalancer
+  ports:
+  - port: 443          # External port that LoadBalancer will expose to the outside world
+    targetPort: 443     # The port on the Pod that the service forwards traffic to (i.e. pod container port)
+    protocol: TCP
+    name: https
+  - port: 80           # External port for HTTP
+    targetPort: 8080    # Pod port (for internal traffic) that the service forwards traffic to
+    protocol: TCP
+    name: http
